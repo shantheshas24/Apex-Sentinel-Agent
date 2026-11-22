@@ -22,17 +22,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    from utils.logger import setup_logging
+    from personal_os_agent.utils.logger import setup_logging
 
     setup_logging()
 
     if not args.no_mcp:
         print("[Main] Starting MCP tool server thread...")
-        from core.bootstrap import start_mcp_server_thread
+        from personal_os_agent.core.bootstrap import start_mcp_server_thread
 
         start_mcp_server_thread()
 
-    from core.bootstrap import run
+    from personal_os_agent.core.bootstrap import run
 
     try:
         asyncio.run(run(args))

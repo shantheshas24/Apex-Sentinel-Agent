@@ -70,7 +70,7 @@ async def redis_raw():
 @pytest.fixture
 async def redis_client():
     """RedisClient instance per test."""
-    from memory.redis_client import RedisClient
+    from personal_os_agent.memory.redis_client import RedisClient
     # Use a fresh instance (not the singleton) so tests don't share state
     rc = RedisClient(REDIS_URL)
     yield rc
@@ -288,7 +288,7 @@ async def test_redis_activity_log(redis_client, redis_raw):
 @pytest.mark.unit
 def test_observer_normalize_email():
     """_normalize_email produces all required fields from a raw Gmail message."""
-    from agents.observer_agent import ObserverAgent
+    from personal_os_agent.agents.observer_agent import ObserverAgent
     agent = ObserverAgent()
 
     raw_email = {
@@ -324,7 +324,7 @@ def test_observer_normalize_email():
 @pytest.mark.asyncio
 async def test_observer_saves_checkpoint_after_queuing_read_mail(monkeypatch):
     from unittest.mock import AsyncMock
-    from agents.observer_agent import ObserverAgent
+    from personal_os_agent.agents.observer_agent import ObserverAgent
 
     agent = ObserverAgent()
     checkpoint = {"page_token": "", "history_id": "101"}
@@ -349,8 +349,8 @@ async def test_observer_saves_checkpoint_after_queuing_read_mail(monkeypatch):
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_mcp_lists_only_gmail_tools():
-    from mcp_server.google_auth import SCOPES
-    from mcp_server.server import build_mcp_app
+    from personal_os_agent.mcp_server.google_auth import SCOPES
+    from personal_os_agent.mcp_server.server import build_mcp_app
 
     tools = await build_mcp_app().list_tools()
 
@@ -360,7 +360,7 @@ async def test_mcp_lists_only_gmail_tools():
 @pytest.mark.unit
 def test_observer_no_urgency_for_newsletter():
     """Newsletters with no urgency keywords produce empty urgency_keywords list."""
-    from agents.observer_agent import ObserverAgent
+    from personal_os_agent.agents.observer_agent import ObserverAgent
     agent = ObserverAgent()
 
     raw = {
@@ -381,7 +381,7 @@ def test_observer_no_urgency_for_newsletter():
 @pytest.mark.unit
 def test_planner_parse_valid_json():
     """_parse_llm_response handles clean JSON."""
-    from agents.planner_agent import PlannerAgent
+    from personal_os_agent.agents.planner_agent import PlannerAgent
     agent = PlannerAgent.__new__(PlannerAgent)
 
     raw = json.dumps({
@@ -408,7 +408,7 @@ def test_planner_parse_valid_json():
 @pytest.mark.unit
 def test_planner_parse_markdown_fenced_json():
     """_parse_llm_response strips markdown code fences."""
-    from agents.planner_agent import PlannerAgent
+    from personal_os_agent.agents.planner_agent import PlannerAgent
     agent = PlannerAgent.__new__(PlannerAgent)
 
     raw = '```json\n{"action":"no_action","confidence":30,"priority":"low","reason":"Newsletter","requires_approval":true,"alternatives":[],"explanation":"","action_args":{}}\n```'
@@ -421,7 +421,7 @@ def test_planner_parse_markdown_fenced_json():
 @pytest.mark.unit
 def test_planner_parse_invalid_json_raises():
     """_parse_llm_response raises ValueError for unparseable output."""
-    from agents.planner_agent import PlannerAgent
+    from personal_os_agent.agents.planner_agent import PlannerAgent
     agent = PlannerAgent.__new__(PlannerAgent)
 
     with pytest.raises(ValueError, match="invalid JSON"):
@@ -432,7 +432,7 @@ def test_planner_parse_invalid_json_raises():
 @pytest.mark.unit
 def test_planner_parse_confidence_clamped():
     """Confidence values outside 0-100 are clamped."""
-    from agents.planner_agent import PlannerAgent
+    from personal_os_agent.agents.planner_agent import PlannerAgent
     agent = PlannerAgent.__new__(PlannerAgent)
 
     plan = agent._parse_llm_response('{"action":"no_action","confidence":150,"reason":"x","requires_approval":true,"alternatives":[],"explanation":"","action_args":{}}')
@@ -446,7 +446,7 @@ def test_planner_parse_confidence_clamped():
 @pytest.mark.unit
 def test_planner_parse_missing_fields_get_defaults():
     """Missing optional fields are filled with sensible defaults."""
-    from agents.planner_agent import PlannerAgent
+    from personal_os_agent.agents.planner_agent import PlannerAgent
     agent = PlannerAgent.__new__(PlannerAgent)
 
     plan = agent._parse_llm_response('{"confidence": 60}')
@@ -460,7 +460,7 @@ def test_planner_parse_missing_fields_get_defaults():
 @pytest.mark.unit
 def test_planner_score_plan_urgency_boost():
     """Urgency keywords boost confidence by up to 30%."""
-    from agents.planner_agent import PlannerAgent
+    from personal_os_agent.agents.planner_agent import PlannerAgent
     agent = PlannerAgent.__new__(PlannerAgent)
 
     base_plan = {"action": "no_action", "confidence": 70, "requires_approval": True}
@@ -481,7 +481,7 @@ def test_planner_score_plan_urgency_boost():
 @pytest.mark.unit
 def test_planner_score_plan_output_clamped():
     """Adjusted confidence is always clamped to [0, 100]."""
-    from agents.planner_agent import PlannerAgent
+    from personal_os_agent.agents.planner_agent import PlannerAgent
     agent = PlannerAgent.__new__(PlannerAgent)
 
     plan_high = {"action": "no_action", "confidence": 99, "requires_approval": True}
@@ -762,7 +762,7 @@ def test_inject_urgent_email_flows_to_emails_all(http, cleanup_injected_events):
 @pytest.mark.parametrize("event_type", ["calendar", "filesystem", "unknown_type"])
 def test_inject_refuses_retired_event_types(event_type):
     from fastapi.testclient import TestClient
-    from api.app import app
+    from personal_os_agent.api.app import app
 
     with TestClient(app) as client:
         response = client.post("/api/events/inject", json={"event_type": event_type})
@@ -774,9 +774,9 @@ def test_inject_refuses_retired_event_types(event_type):
 async def test_deadline_workflow_tracks_sample_and_ignores_unrelated_email(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from agents.planner_agent import PlannerAgent
-    from api.app import app
-    from memory.redis_client import RedisClient
+    from personal_os_agent.agents.planner_agent import PlannerAgent
+    from personal_os_agent.api.app import app
+    from personal_os_agent.memory.redis_client import RedisClient
 
     redis = AsyncMock(spec=RedisClient)
     monkeypatch.setattr(RedisClient, "get_instance", lambda: redis)
@@ -830,7 +830,7 @@ async def test_deadline_workflow_tracks_sample_and_ignores_unrelated_email(monke
 @pytest.mark.parametrize("path", ["/api/approve/old", "/api/reject/old", "/api/twilio/test"])
 def test_retired_outbound_routes_are_unavailable(path):
     from fastapi.testclient import TestClient
-    from api.app import app
+    from personal_os_agent.api.app import app
 
     with TestClient(app) as client:
         assert client.post(path).status_code == 404

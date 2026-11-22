@@ -60,7 +60,7 @@ markers = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["tests*", "scripts*", "docs*"]
+include = ["personal_os_agent*"]
 
 [tool.setuptools.package-data]
-api = ["static/*.html", "static/*.js", "static/*.css"]
+"personal_os_agent.api" = ["static/*.html", "static/*.js", "static/*.css"]

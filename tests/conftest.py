@@ -16,11 +16,11 @@ pytest tests/test_backend.py -m unit -v
 # Full suite (requires running system, ~4 min)
 pytest tests/test_backend.py -v
 
-See pytest.ini for asyncio_mode = auto configuration.
+See pyproject.toml for asyncio_mode = auto configuration.
 """
 import sys
 from pathlib import Path
 
-# Ensure the project root is on sys.path so that ``import agents`` etc. works
+# Ensure the project root is on sys.path so that ``import personal_os_agent`` works
 # regardless of the directory pytest is invoked from.
 sys.path.insert(0, str(Path(__file__).parent.parent))

@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 # Reconfigure stdout/stderr to UTF-8 so Unicode box-drawing characters
 # (═, →, etc.) don't crash on Windows with cp1252 default encoding.
 if hasattr(sys.stdout, "reconfigure"):
@@ -75,18 +77,15 @@ def check_env() -> None:
     record(".env file exists", env_path.exists(), str(env_path.resolve()))
 
     if not env_path.exists():
-        print(f"  {WARN}  Run: cp .env.example .env  and fill in your keys")
+        print(f"  {WARN}  Create a local .env using docs/CONFIGURATION.md.")
         return
 
     # Load settings
     try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        from config.settings import get_settings
+        from personal_os_agent.config.settings import get_settings
         cfg = get_settings()
 
-        record("OPENROUTER_API_KEY set",
-               bool(cfg.openrouter_api_key and not cfg.openrouter_api_key.startswith("sk-or-v1-...")),
-               cfg.openrouter_api_key[:20] + "..." if cfg.openrouter_api_key else "MISSING")
+        record("OPENROUTER_API_KEY set", bool(cfg.openrouter_api_key))
 
         record("GOOGLE_CREDENTIALS_PATH set",
                bool(cfg.google_credentials_path),
@@ -99,15 +98,12 @@ def check_env() -> None:
         record("token.json exists (OAuth done?)",
                Path(cfg.google_token_path).exists(),
                str(Path(cfg.google_token_path).resolve()) if Path(cfg.google_token_path).exists()
-               else "Run main.py once to trigger OAuth browser flow")
+               else "Select Connect Gmail in the dashboard")
 
-        record("Twilio configured",
-               cfg.twilio_enabled,
-               f"from={cfg.twilio_from_number} to={cfg.twilio_to_number}"
-               if cfg.twilio_enabled else "SIMULATION MODE — set TWILIO_* vars to enable real calls")
+        record("Twilio configured", cfg.twilio_enabled)
 
     except Exception as e:
-        record("Settings loaded", False, str(e))
+        record("Settings loaded", False, type(e).__name__)
 
 
 # ── 2. Redis ─────────────────────────────────────────────────────────────────
@@ -116,7 +112,7 @@ async def check_redis() -> None:
     section("2. Redis")
     try:
         import redis.asyncio as aioredis
-        from config.settings import get_settings
+        from personal_os_agent.config.settings import get_settings
         cfg = get_settings()
 
         r = aioredis.from_url(cfg.redis_url, socket_connect_timeout=3)
@@ -125,7 +121,7 @@ async def check_redis() -> None:
         latency_ms = (time.perf_counter() - t0) * 1000
         await r.aclose()
 
-        record("Redis reachable", bool(pong), f"{latency_ms:.1f}ms latency  ({cfg.redis_url})")
+        record("Redis reachable", bool(pong), f"{latency_ms:.1f}ms latency")
 
         # Check queue lengths
         r2 = aioredis.from_url(cfg.redis_url, encoding="utf-8", decode_responses=True)
@@ -145,7 +141,7 @@ async def check_openrouter() -> None:
     section("3. OpenRouter LLM")
     try:
         import httpx
-        from config.settings import get_settings
+        from personal_os_agent.config.settings import get_settings
         cfg = get_settings()
 
         if not cfg.openrouter_api_key:
@@ -183,7 +179,7 @@ async def check_openrouter() -> None:
 async def check_google() -> None:
     section("4. Gmail API")
     try:
-        from config.settings import get_settings
+        from personal_os_agent.config.settings import get_settings
         cfg = get_settings()
 
         creds_path = Path(cfg.google_credentials_path)
@@ -197,8 +193,7 @@ async def check_google() -> None:
         with open(creds_path) as f:
             creds_data = json.load(f)
         client_id = creds_data.get("installed", {}).get("client_id", "")
-        record("credentials.json valid", bool(client_id),
-               f"client_id={client_id[:30]}..." if client_id else "Invalid structure")
+        record("credentials.json valid", bool(client_id))
 
         # Check token.json
         token_path = Path(cfg.google_token_path)
@@ -208,7 +203,7 @@ async def check_google() -> None:
             return
 
         # Try loading and refreshing the token
-        from mcp_server.google_auth import get_credentials
+        from personal_os_agent.mcp_server.google_auth import get_credentials
 
         creds = await asyncio.to_thread(get_credentials)
         record("token.json (OAuth)", creds.valid, "Read-only grant")
@@ -218,10 +213,9 @@ async def check_google() -> None:
             from googleapiclient.discovery import build
             t0 = time.perf_counter()
             gmail = build("gmail", "v1", credentials=creds)
-            profile = gmail.users().getProfile(userId="me").execute()
+            gmail.users().getProfile(userId="me").execute()
             latency_ms = (time.perf_counter() - t0) * 1000
-            record("Gmail API", True,
-                   f"account={profile.get('emailAddress')}  latency={latency_ms:.0f}ms")
+            record("Gmail API", True, f"{latency_ms:.0f}ms latency")
         except Exception as e:
             record("Gmail API", False, str(e)[:100])
 
@@ -234,7 +228,7 @@ async def check_google() -> None:
 async def check_twilio() -> None:
     section("5. Twilio (Phone Calls)")
     try:
-        from config.settings import get_settings
+        from personal_os_agent.config.settings import get_settings
         cfg = get_settings()
 
         if not cfg.twilio_enabled:
@@ -251,10 +245,9 @@ async def check_twilio() -> None:
         account = await asyncio.to_thread(lambda: client.api.accounts(cfg.twilio_account_sid).fetch())
         latency_ms = (time.perf_counter() - t0) * 1000
 
-        record("Twilio credentials valid", True,
-               f"account='{account.friendly_name}'  status={account.status}  latency={latency_ms:.0f}ms")
-        record("Twilio from number", bool(cfg.twilio_from_number), cfg.twilio_from_number)
-        record("Twilio to number",   bool(cfg.twilio_to_number),   cfg.twilio_to_number)
+        record("Twilio credentials valid", True, f"status={account.status}  latency={latency_ms:.0f}ms")
+        record("Twilio from number configured", bool(cfg.twilio_from_number))
+        record("Twilio to number configured", bool(cfg.twilio_to_number))
 
     except Exception as e:
         err = str(e)
@@ -270,7 +263,7 @@ async def check_chromadb() -> None:
     section("6. ChromaDB (Vector Memory)")
     try:
         import chromadb
-        from config.settings import get_settings
+        from personal_os_agent.config.settings import get_settings
         cfg = get_settings()
 
         t0 = time.perf_counter()
@@ -306,7 +299,7 @@ async def check_mcp_server() -> None:
     section("7. MCP Server (port 8000)")
     try:
         import httpx
-        from config.settings import get_settings
+        from personal_os_agent.config.settings import get_settings
         cfg = get_settings()
         # Probe the root URL, NOT cfg.mcp_sse_url (/sse).
         # The /sse endpoint streams indefinitely — a GET against it would block

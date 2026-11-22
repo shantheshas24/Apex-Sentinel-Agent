@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config.settings import get_settings
-from mcp_server.google_auth import SCOPES, store_credentials
+from personal_os_agent.config.settings import get_settings
+from personal_os_agent.mcp_server.google_auth import SCOPES, store_credentials
 
 cfg = get_settings()
 

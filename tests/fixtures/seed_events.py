@@ -15,8 +15,8 @@ SAMPLES = [
 
 
 async def seed(limit: int | None = None) -> None:
-    from agents.observer_agent import ObserverAgent
-    from memory.redis_client import RedisClient
+    from personal_os_agent.agents.observer_agent import ObserverAgent
+    from personal_os_agent.memory.redis_client import RedisClient
 
     redis = RedisClient.get_instance()
     samples = SAMPLES[:limit]

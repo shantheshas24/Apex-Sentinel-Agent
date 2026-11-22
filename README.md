@@ -5,22 +5,20 @@ PersonalOS turns authorized Gmail messages into deadline tasks. The dashboard sh
 ## Run locally
 
 1. Install Python 3.11 or later and start Redis.
-2. Install the dependencies and copy the example environment file.
+2. From the repository root, install PersonalOS.
 
    ```powershell
-   python -m pip install -r requirements.txt
-   Copy-Item .env.example .env
+   python -m pip install -e .
    ```
 
-3. Set `OPENROUTER_API_KEY` in `.env`. The default model uses the [OpenRouter free router](https://openrouter.ai/openrouter/free).
-4. Enable the Gmail API for your Google Cloud project. Create a Desktop OAuth client and save the downloaded credentials as `secrets/credentials.json`.
-5. Start the app.
+3. Create a local `.env` and set your OpenRouter key. For Gmail or Twilio, follow the [configuration guide](docs/CONFIGURATION.md).
+4. Start the app.
 
    ```powershell
-   python main.py
+   python -m personal_os_agent
    ```
 
-6. Open the dashboard and select **Connect Gmail** to grant read-only access. Select **Reconnect Gmail** if your saved connection has expired or used the earlier permissions. [Open the deadline dashboard](http://localhost:8080)
+5. Open the dashboard and select **Connect Gmail** to grant read-only access. Select **Reconnect Gmail** if your saved connection has expired or used the earlier permissions. [Open the deadline dashboard](http://localhost:8080)
 
 **Check Gmail** requests an immediate scan. On the first scan the Observer pages through unread mail and inbox mail received in the past day. Afterwards it resumes from a saved Gmail history checkpoint and recovers the elapsed inbox window if Google expires that checkpoint. The Planner uses the subject and up to 12,000 characters of inline email text. A local fallback can still recognize clearly worded cutoffs for review. Jobs that need the model remain in Redis and retry without blocking newer mail. With OpenRouter, requests ask the service to route only to providers that deny data collection. Run the dashboard on localhost for single-user use.
 
@@ -31,7 +29,7 @@ PersonalOS turns authorized Gmail messages into deadline tasks. The dashboard sh
 - **Reminders** shows recent in-app alerts. Low-importance tasks get one planned alert an hour before the deadline. Medium gets 24 and 2 hours, and High gets 24 and 3 hours. High-importance tasks become Critical within four hours. The worker combines reminders that become eligible together.
 - To also receive browser notifications, open **Connections** and select **Enable browser notifications**. Keep the dashboard open to receive browser alerts. The app keeps a dashboard history while the tab is closed.
 - Snooze delays alerts. Changing a due time replaces its schedule. Marking a task complete cancels its remaining reminders.
-- To enable critical calls, configure Twilio and set `DEADLINE_PHONE_ENABLED=true` in `.env`. The worker automatically attempts one call per unfinished, unsnoozed critical Gmail deadline during active reminder hours, subject to the daily call limit. The deadline card shows the call status reported by Twilio. Sample emails can create dashboard reminders. Quiet hours and rate limits are documented in [.env.example](.env.example).
+- To enable critical calls, configure Twilio and set `DEADLINE_PHONE_ENABLED=true` in `.env`. The worker automatically attempts one call per unfinished, unsnoozed critical Gmail deadline during active reminder hours, subject to the daily call limit. The deadline card shows the call status reported by Twilio. Sample emails can create dashboard reminders. See [notification settings](docs/CONFIGURATION.md#deadline-notifications).
 
 ## Try it without Gmail or a model
 
@@ -53,4 +51,13 @@ python -m pytest -m unit
 
 `python scripts/evaluate_deadlines.py` sends eight labeled synthetic messages to the configured model and reports task precision, recall, due-wording accuracy, latency, and token usage. Pass `--case multiple` for a single test. The evaluation sends no Gmail data or phone calls.
 
-See [architecture](docs/ARCHITECTURE.md) for data flow and API paths and [the changelog](CHANGELOG.md) for prior releases. The original hackathon materials in `docs/` document the earlier project.
+## Repository layout
+
+| Directory | Contents |
+|---|---|
+| `personal_os_agent/` | Python application, Gmail MCP tools, dashboard assets, and reminder worker |
+| `tests/` | Automated tests and synthetic email fixtures |
+| `scripts/` | Setup, diagnostics, and developer utilities |
+| `docs/` | Configuration and architecture guides, with the original demo materials in `docs/archive/` |
+
+See the [architecture guide](docs/ARCHITECTURE.md) for data flow and API paths and the [changelog](CHANGELOG.md) for prior releases.

@@ -10,9 +10,9 @@ from uuid import uuid4
 import pytest
 from googleapiclient.errors import HttpError
 
-from mcp_server.gmail_tools import GmailCursor, gmail_sync_page
-from memory import redis_client
-from memory.redis_client import RedisClient
+from personal_os_agent.mcp_server.gmail_tools import GmailCursor, gmail_sync_page
+from personal_os_agent.memory import redis_client
+from personal_os_agent.memory.redis_client import RedisClient
 
 pytestmark = pytest.mark.unit
 
@@ -117,7 +117,7 @@ def test_new_logs_exclude_provider_payloads(tmp_path):
     script = """
 import logging
 import sys
-from utils.logger import get_logger, setup_logging
+from personal_os_agent.utils.logger import get_logger, setup_logging
 setup_logging(sys.argv[1])
 logging.getLogger("openai._base_client").warning("private model payload")
 logging.getLogger("mcp.client.sse").error("private Gmail payload")

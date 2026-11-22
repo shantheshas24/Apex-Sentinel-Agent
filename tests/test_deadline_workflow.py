@@ -12,17 +12,17 @@ import httpx
 import pytest
 from openai import RateLimitError
 
-from agents.planner_agent import ModelCoolingDown, PlannerAgent
-from api.app import app
-from api.routers import deadlines
-from config.settings import Settings
-from core.deadlines import explicit_due_time, in_quiet_hours, task_state
-from core.reminders import ReminderWorker
-from mcp_server.gmail_tools import message_payload
-from mcp_server.server import build_mcp_app
-from memory.deadline_tasks import DeadlineTasks, REMINDERS, TASKS
-from memory.redis_client import RedisClient
-from utils.notifier import CallProgress
+from personal_os_agent.agents.planner_agent import ModelCoolingDown, PlannerAgent
+from personal_os_agent.api.app import app
+from personal_os_agent.api.routers import deadlines
+from personal_os_agent.config.settings import Settings
+from personal_os_agent.core.deadlines import explicit_due_time, in_quiet_hours, task_state
+from personal_os_agent.core.reminders import ReminderWorker
+from personal_os_agent.mcp_server.gmail_tools import message_payload
+from personal_os_agent.mcp_server.server import build_mcp_app
+from personal_os_agent.memory.deadline_tasks import DeadlineTasks, REMINDERS, TASKS
+from personal_os_agent.memory.redis_client import RedisClient
+from personal_os_agent.utils.notifier import CallProgress
 
 pytestmark = pytest.mark.unit
 
@@ -73,7 +73,7 @@ async def test_mcp_gmail_read_requests_inline_text(monkeypatch):
         "id": "sample",
         "payload": {"mimeType": "text/plain", "body": {"data": base64.urlsafe_b64encode(gmail_message.encode()).decode()}},
     }
-    monkeypatch.setattr("mcp_server.gmail_tools._get_gmail_service", lambda: gmail)
+    monkeypatch.setattr("personal_os_agent.mcp_server.gmail_tools._get_gmail_service", lambda: gmail)
     _, structured = await build_mcp_app().call_tool("read_emails", {"query": "is:unread"})
     messages.get.assert_called_once_with(userId="me", id="sample", format="full")
     assert structured["result"][0]["body"] == gmail_message

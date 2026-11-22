@@ -6,9 +6,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi.testclient import TestClient
 
-from api.app import app
-from api.routers import google
-from mcp_server import google_auth
+from personal_os_agent.api.app import app
+from personal_os_agent.api.routers import google
+from personal_os_agent.mcp_server import google_auth
 
 pytestmark = pytest.mark.unit
 ORIGIN = "http://localhost:8080"

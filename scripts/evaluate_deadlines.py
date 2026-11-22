@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agents.planner_agent import PlannerAgent
+from personal_os_agent.agents.planner_agent import PlannerAgent
 
 # Case name, synthetic email body, and labeled (task clue, original due wording).
 CASES = [

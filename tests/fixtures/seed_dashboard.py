@@ -14,7 +14,7 @@ SAMPLES = [
 
 
 async def seed() -> None:
-    from memory.redis_client import RedisClient
+    from personal_os_agent.memory.redis_client import RedisClient
 
     redis = RedisClient.get_instance()
     try:

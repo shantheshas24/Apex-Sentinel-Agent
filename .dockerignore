@@ -1,0 +1,17 @@
+# Only packaging inputs enter the image build context.
+**
+!pyproject.toml
+!README.md
+!LICENSE
+!personal_os_agent/
+!personal_os_agent/**
+
+**/__pycache__/
+**/*.py[cod]
+**/.env
+**/.env.*
+**/*.env
+**/*.env.*
+**/secrets/
+**/credentials.json
+**/token.json

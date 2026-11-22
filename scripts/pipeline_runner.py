@@ -37,10 +37,10 @@ async def fetch_emails_httpx(creds, max_results=10):
 
 
 async def main():
-    from agents.observer_agent import ObserverAgent
-    from mcp_server.gmail_tools import message_payload
-    from mcp_server.google_auth import get_credentials
-    from memory.redis_client import RedisClient
+    from personal_os_agent.agents.observer_agent import ObserverAgent
+    from personal_os_agent.mcp_server.gmail_tools import message_payload
+    from personal_os_agent.mcp_server.google_auth import get_credentials
+    from personal_os_agent.memory.redis_client import RedisClient
 
     credentials = await asyncio.to_thread(get_credentials)
     messages = await fetch_emails_httpx(credentials, max_results=20)
