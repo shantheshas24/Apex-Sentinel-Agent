@@ -69,15 +69,17 @@ class BaseAgent(ABC):
             finally:
                 self._sse_cm = None
 
-    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any], *, attempts: int = 3) -> Any:
         """
         Call an MCP tool with 3-attempt exponential backoff retry.
         Returns the tool result content.
         """
         last_exc = None
-        for attempt in range(3):
+        for attempt in range(attempts):
             try:
                 result = await self._session.call_tool(tool_name, arguments=arguments)
+                if result.isError:
+                    raise RuntimeError("MCP server rejected the tool request")
                 # FastMCP >= 1.x returns list/dict results via structuredContent
                 # with an empty content list.  Prefer structuredContent when set.
                 sc = getattr(result, "structuredContent", None)
@@ -89,7 +91,8 @@ class BaseAgent(ABC):
                 content = result.content
                 if content and hasattr(content[0], "text"):
                     try:
-                        return json.loads(content[0].text)
+                        payload = json.loads(content[0].text)
+                        return payload.get("result", payload) if isinstance(payload, dict) else payload
                     except (json.JSONDecodeError, ValueError):
                         return content[0].text
                 return content
@@ -97,21 +100,19 @@ class BaseAgent(ABC):
                 last_exc = exc
                 # Include the type name so empty-message exceptions (e.g.
                 # anyio.ClosedResourceError) are still identifiable in logs.
-                exc_label = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
-                if attempt < 2:
+                if attempt < attempts - 1:
                     wait = 2 ** attempt  # 1s, 2s
                     self.logger.warning(
                         "tool_call_retry",
                         tool=tool_name,
                         attempt=attempt + 1,
                         wait=wait,
-                        error=exc_label,
+                        error_type=type(exc).__name__,
                     )
                     await asyncio.sleep(wait)
 
-        exc_label = f"{type(last_exc).__name__}: {last_exc}" if str(last_exc) else type(last_exc).__name__
-        self.logger.error("tool_call_failed", tool=tool_name, error=exc_label)
-        raise RuntimeError(f"MCP tool '{tool_name}' failed after 3 attempts: {last_exc!r}")
+        self.logger.error("tool_call_failed", tool=tool_name, error_type=type(last_exc).__name__)
+        raise RuntimeError(f"MCP tool '{tool_name}' failed after {attempts} attempts") from None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -136,7 +137,7 @@ class BaseAgent(ABC):
                     pass
                 raise  # re-raise so the task terminates correctly
             except Exception as exc:
-                self.logger.error("agent_crashed", error=str(exc))
+                self.logger.error("agent_crashed", error_type=type(exc).__name__)
                 await self.disconnect_mcp()
                 self.logger.info("agent_restarting", delay=5)
                 await asyncio.sleep(5)

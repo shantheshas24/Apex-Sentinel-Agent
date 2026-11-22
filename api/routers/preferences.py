@@ -14,15 +14,12 @@ router = APIRouter()
 @router.get("/api/preferences")
 async def list_preferences() -> list[dict]:
     """List all ChromaDB user preference documents."""
-    from memory.chroma_memory import ChromaMemory
+    from memory.chroma_memory import ChromaMemory, DEADLINE_PREFERENCE_FILTER
     memory = ChromaMemory.from_settings()
     try:
-        count = await asyncio.to_thread(memory.preferences.count)
-        if count == 0:
-            return []
         result = await asyncio.to_thread(
             memory.preferences.get,
-            limit=count,
+            where=DEADLINE_PREFERENCE_FILTER,
             include=["documents", "metadatas"],
         )
         return [
@@ -42,8 +39,10 @@ async def add_preference(body: dict) -> dict:
     text = (body.get("text") or "").strip()
     if not text:
         return JSONResponse({"error": "text is required"}, status_code=400)
-    category = body.get("category", "general")
-    from memory.chroma_memory import ChromaMemory
+    category = body.get("category", "deadline")
+    from memory.chroma_memory import ChromaMemory, DEADLINE_PREFERENCE_CATEGORIES
+    if category not in DEADLINE_PREFERENCE_CATEGORIES:
+        return JSONResponse({"error": "Unsupported preference category"}, status_code=400)
     memory = ChromaMemory.from_settings()
     try:
         await memory.store_preference(text, category=category, source="dashboard")

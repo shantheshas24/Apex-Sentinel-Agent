@@ -130,12 +130,10 @@ async def check_redis() -> None:
         # Check queue lengths
         r2 = aioredis.from_url(cfg.redis_url, encoding="utf-8", decode_responses=True)
         eq = await r2.llen("events:queue")
-        aq = await r2.llen("approvals:pending")
-        dp = await r2.hlen("dashboard:pending")
         await r2.aclose()
         record("Queue status",
                True,
-               f"events:queue={eq}  approvals:pending={aq}  dashboard:pending={dp}")
+               f"events:queue={eq}")
 
     except Exception as e:
         record("Redis reachable", False, f"{e}  →  Start with: redis-server")
@@ -183,7 +181,7 @@ async def check_openrouter() -> None:
 # ── 4. Google APIs ────────────────────────────────────────────────────────────
 
 async def check_google() -> None:
-    section("4. Google APIs (Gmail + Calendar)")
+    section("4. Gmail API")
     try:
         from config.settings import get_settings
         cfg = get_settings()
@@ -206,24 +204,14 @@ async def check_google() -> None:
         token_path = Path(cfg.google_token_path)
         if not token_path.exists():
             record("token.json (OAuth)", False,
-                   "Not found — run 'python main.py' once to complete OAuth browser flow")
+                   "Not found — select Connect Gmail in the dashboard")
             return
 
         # Try loading and refreshing the token
-        from google.oauth2.credentials import Credentials
-        from google.auth.transport.requests import Request
-        from mcp_server.google_auth import SCOPES
+        from mcp_server.google_auth import get_credentials
 
-        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            record("token.json (OAuth)", True, "Expired — auto-refreshed successfully")
-        else:
-            record("token.json (OAuth)", creds.valid,
-                   "Valid" if creds.valid else "Invalid — delete token.json and re-run OAuth")
-
-        if not creds.valid:
-            return
+        creds = await asyncio.to_thread(get_credentials)
+        record("token.json (OAuth)", creds.valid, "Read-only grant")
 
         # Test Gmail API
         try:
@@ -237,23 +225,8 @@ async def check_google() -> None:
         except Exception as e:
             record("Gmail API", False, str(e)[:100])
 
-        # Test Calendar API
-        try:
-            from googleapiclient.discovery import build
-            from datetime import datetime, timezone
-            t0 = time.perf_counter()
-            cal = build("calendar", "v3", credentials=creds)
-            cal_list = cal.calendarList().list(maxResults=1).execute()
-            latency_ms = (time.perf_counter() - t0) * 1000
-            items = cal_list.get("items", [])
-            cal_name = items[0].get("summary", "primary") if items else "primary"
-            record("Calendar API", True,
-                   f"calendar='{cal_name}'  latency={latency_ms:.0f}ms")
-        except Exception as e:
-            record("Calendar API", False, str(e)[:100])
-
     except Exception as e:
-        record("Google APIs", False, str(e)[:120])
+        record("Gmail API", False, str(e)[:120])
 
 
 # ── 5. Twilio ─────────────────────────────────────────────────────────────────

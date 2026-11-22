@@ -1,213 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>PersonalOS — SOLARIS X 2026</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7f3">
+  <title>Deadlines · PersonalOS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
 </head>
 <body>
-<div id="toast-container"></div>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<div id="toast-container" role="status" aria-live="polite"></div>
 
 <div class="shell">
-  <!-- ════ Sidebar ════ -->
   <aside class="sidebar">
-    <div class="sidebar-logo">
-      <div class="logo-name">PersonalOS</div>
-      <div class="logo-tag">SOLARIS X &middot; 2026</div>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span>Personal<span class="brand-accent">OS</span></span>
     </div>
-
-    <div class="sidebar-label">Navigation</div>
-    <nav class="sidebar-nav">
-      <div class="nav-item active" onclick="switchTab('approvals',this)">
-        <span class="nav-icon">📬</span> Email Intelligence
-        <span class="nav-badge" id="pending-badge" style="display:none">0</span>
-      </div>
-      <div class="nav-item" onclick="switchTab('analytics',this)">
-        <span class="nav-icon">📊</span> Analytics
-      </div>
-      <div class="nav-item" onclick="switchTab('inject',this)">
-        <span class="nav-icon">⚡</span> Inject Event
-      </div>
-      <div class="nav-item" onclick="switchTab('prefs',this)">
-        <span class="nav-icon">🧠</span> Preferences
-      </div>
+    <nav class="sidebar-nav" aria-label="Workspace">
+      <button class="nav-item active" data-tab="deadlines" data-title="Deadlines" aria-current="page">
+        <span class="icon i-calendar" aria-hidden="true"></span> Deadlines
+      </button>
+      <button class="nav-item" data-tab="analytics" data-title="Analytics">
+        <span class="icon i-chart" aria-hidden="true"></span> Analytics
+      </button>
+      <button class="nav-item" data-tab="inject" data-title="Test Deadline">
+        <span class="icon i-flask" aria-hidden="true"></span> Test Deadline
+      </button>
+      <button class="nav-item" data-tab="prefs" data-title="Preferences">
+        <span class="icon i-settings" aria-hidden="true">⚙</span> Preferences
+      </button>
+      <button class="nav-item" data-tab="connections" data-title="Connections">
+        <span class="icon i-link" aria-hidden="true"></span> Connections
+      </button>
     </nav>
-
     <div class="sidebar-footer">
-      <div class="live-indicator">
-        <span class="live-dot"></span>
-        <span id="ws-label">Connecting…</span>
-      </div>
+      <span class="live-indicator"><span class="live-dot"></span><span id="ws-label">Connecting…</span></span>
+      <button class="icon-button theme-toggle" id="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false">
+        <span aria-hidden="true">☾</span>
+      </button>
     </div>
   </aside>
 
-  <!-- ════ Main ════ -->
-  <div class="main-col">
-    <!-- Top bar -->
+  <main id="main-content" class="main-col" tabindex="-1">
     <div class="top-bar">
-      <div>
-        <div class="page-title">Agent Dashboard</div>
-        <div class="page-sub">Autonomous multi-agent AI &mdash; <span class="kbd">A</span> approve &nbsp;<span class="kbd">R</span> reject &nbsp;<span class="kbd">↑↓</span> navigate</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn-theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
-        <button class="btn-testcall" onclick="triggerTestCall()">📞 Test Call</button>
-      </div>
+      <div class="breadcrumb"><span>Workspace</span><span class="breadcrumb-divider" aria-hidden="true">/</span><strong id="page-location">Deadlines</strong></div>
+      <button class="top-connection" id="connection-shortcut" type="button">
+        <span class="google-mark" aria-hidden="true">G</span>
+        <span id="connection-shortcut-label">Gmail</span>
+        <span class="connection-dot" data-gmail-dot></span>
+      </button>
     </div>
 
-    <!-- Health strip -->
-    <div id="health-grid" class="health-strip">
-      <span style="font-size:.75rem;color:var(--text-3)">Loading health…</span>
-    </div>
-
-    <!-- Tab content -->
     <div class="page-content">
-
-      <!-- ══════════ APPROVALS TAB ══════════ -->
-      <div id="tab-approvals" class="tab-panel active">
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-num c-total" id="stat-total">—</div><div class="stat-label">Total</div></div>
-          <div class="stat-card"><div class="stat-num c-high"  id="stat-high">—</div><div class="stat-label">High</div></div>
-          <div class="stat-card"><div class="stat-num c-med"   id="stat-med">—</div><div class="stat-label">Medium</div></div>
-          <div class="stat-card"><div class="stat-num c-low"   id="stat-low">—</div><div class="stat-label">Low</div></div>
-          <div class="stat-card"><div class="stat-num c-auto"  id="stat-auto">—</div><div class="stat-label">Auto-Exec</div></div>
-          <div class="stat-card"><div class="stat-num c-pend"  id="stat-pending">—</div><div class="stat-label">Pending</div></div>
-        </div>
-
-        <div class="sec-head">
-          <div class="sec-title">Email Intelligence <span class="count-pill" id="email-count">—</span></div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-green" onclick="approveAllPending()">Approve All Pending</button>
-            <button class="btn btn-purple" onclick="exportCSV()">Export CSV</button>
+      <section id="tab-deadlines" class="tab-panel active" aria-labelledby="deadlines-title">
+        <header class="page-heading">
+          <div>
+            <h1 id="deadlines-title">Deadlines</h1>
+            <p>Review and manage deadlines found in your inbox.</p>
           </div>
+          <div class="page-actions">
+            <button class="btn" id="export-button" type="button" onclick="exportCSV()" disabled><span class="icon i-download" aria-hidden="true"></span> Export CSV</button>
+            <button class="btn btn-primary" id="poll-button" type="button" onclick="pollNow()" disabled><span class="icon i-refresh" aria-hidden="true">↻</span> Check Gmail</button>
+          </div>
+        </header>
+
+        <section class="connection-hero" aria-labelledby="gmail-hero-title">
+          <div class="hero-content">
+            <span class="hero-status"><span class="connection-dot" data-gmail-dot></span><span data-gmail-status>Checking connection</span></span>
+            <h2 id="gmail-hero-title" data-gmail-title>Connect your Gmail</h2>
+            <p data-gmail-description>PersonalOS uses read-only access to find deadlines in your inbox.</p>
+            <button class="btn google-button" type="button" data-connect-google>
+              <span class="google-mark" aria-hidden="true">G</span><span data-connect-label>Connect Gmail</span>
+            </button>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="art-orbit art-orbit-one"></div><div class="art-orbit art-orbit-two"></div>
+            <div class="art-mail"><div></div></div>
+            <div class="art-calendar">
+              <div class="art-calendar-top"><i></i><i></i></div>
+              <div class="art-calendar-days"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="art-check">✓</div>
+            <span class="art-spark art-spark-one">✧</span><span class="art-spark art-spark-two">✦</span>
+          </div>
+        </section>
+
+        <section class="stats-grid" aria-label="Deadline totals">
+          <button class="stat-card" data-stat-filter="all"><span class="stat-label">Total</span><strong id="stat-total">–</strong></button>
+          <button class="stat-card stat-amber" data-stat-filter="needs_review"><span class="stat-label">Needs review</span><strong id="stat-review">–</strong></button>
+          <button class="stat-card" data-stat-filter="pending"><span class="stat-label">Pending</span><strong id="stat-pending">–</strong></button>
+          <button class="stat-card stat-blue" data-stat-filter="upcoming"><span class="stat-label">Upcoming</span><strong id="stat-upcoming">–</strong></button>
+          <button class="stat-card stat-red" data-stat-filter="overdue"><span class="stat-label">Overdue</span><strong id="stat-overdue">–</strong></button>
+          <button class="stat-card stat-green" data-stat-filter="completed"><span class="stat-label">Completed</span><strong id="stat-completed">–</strong></button>
+        </section>
+
+        <div class="workspace-grid">
+          <section class="panel queue-panel" aria-labelledby="queue-title">
+            <div class="panel-header queue-header">
+              <h2 id="queue-title">Deadline queue <span class="count-pill" id="email-count">–</span></h2>
+              <label class="search-field">
+                <span class="icon i-search" aria-hidden="true"></span>
+                <input id="search-box" type="search" placeholder="Search deadlines" aria-label="Search deadlines" oninput="applyFilter()">
+              </label>
+            </div>
+            <div class="filter-chips" aria-label="Deadline filters">
+              <button class="filter-chip active" data-filter="all" aria-pressed="true">All</button>
+              <button class="filter-chip" data-filter="needs_review" aria-pressed="false">Needs review</button>
+              <button class="filter-chip" data-filter="pending" aria-pressed="false">Pending</button>
+              <button class="filter-chip" data-filter="upcoming" aria-pressed="false">Upcoming</button>
+              <button class="filter-chip" data-filter="overdue" aria-pressed="false">Overdue</button>
+              <button class="filter-chip" data-filter="completed" aria-pressed="false">Completed</button>
+              <button class="filter-chip" data-filter="critical" aria-pressed="false">Critical</button>
+            </div>
+            <div id="email-list"><p class="empty">Loading deadlines…</p></div>
+            <div class="queue-footer"><kbd>↑</kbd><kbd>↓</kbd> Navigate</div>
+          </section>
+
+          <aside class="workspace-rail" aria-label="Workspace updates">
+            <section class="panel update-panel" aria-labelledby="reminders-title">
+              <div class="panel-header"><h2 id="reminders-title"><span class="icon i-bell" aria-hidden="true"></span> Reminders</h2><span class="count-pill" id="reminder-count">0</span></div>
+              <p class="reminder-policy" id="reminder-policy"></p>
+              <div id="reminder-list" class="feed-list" aria-live="polite"><p class="empty">Loading reminders…</p></div>
+              <a class="reminder-settings" href="#connections">Notification settings</a>
+            </section>
+            <section class="panel update-panel" aria-labelledby="activity-title">
+              <div class="panel-header"><h2 id="activity-title"><span class="icon i-activity" aria-hidden="true"></span> Recent activity</h2></div>
+              <div id="activity-feed" class="feed-list"><p class="empty">Loading activity…</p></div>
+            </section>
+          </aside>
         </div>
+      </section>
 
-        <div class="toolbar">
-          <input class="search-input" id="search-box" placeholder="Search subject, sender, action…" oninput="applyFilter()"/>
-        </div>
+      <section id="tab-analytics" class="tab-panel" aria-labelledby="analytics-title">
+        <header class="page-heading"><div><h1 id="analytics-title">Analytics</h1><p>Review deadline completion, priorities, and detection confidence.</p></div></header>
+        <div class="analytics-grid" id="analytics-grid"><p class="empty">Loading metrics…</p></div>
+        <section class="panel update-panel wide-panel">
+          <div class="panel-header"><h2>Recent activity</h2></div>
+          <div id="analytics-feed" class="feed-list"><p class="empty">Loading activity…</p></div>
+        </section>
+      </section>
 
-        <div class="filter-chips">
-          <div class="filter-chip active" onclick="filterEmails('all',this)">All</div>
-          <div class="filter-chip" onclick="filterEmails('high',this)">High Priority</div>
-          <div class="filter-chip" onclick="filterEmails('medium',this)">Medium</div>
-          <div class="filter-chip" onclick="filterEmails('low',this)">Low</div>
-          <div class="filter-chip" onclick="filterEmails('pending',this)">Pending Approval</div>
-          <div class="filter-chip" onclick="filterEmails('auto_executed',this)">Auto-Executed</div>
-          <div class="filter-chip" onclick="filterEmails('rejected',this)">Rejected</div>
-        </div>
-
-        <div id="email-list"><p class="empty">Loading…</p></div>
-
-        <hr class="divider"/>
-        <div class="sec-head"><div class="sec-title">Activity Feed</div></div>
-        <div id="activity-feed" class="feed-list"><p class="empty">Loading…</p></div>
-      </div>
-
-      <!-- ══════════ ANALYTICS TAB ══════════ -->
-      <div id="tab-analytics" class="tab-panel">
-        <div class="analytics-grid" id="analytics-grid">
-          <div class="analytics-card"><p class="empty">Loading…</p></div>
-        </div>
-        <div class="sec-head"><div class="sec-title">Recent Activity</div></div>
-        <div id="analytics-feed" class="feed-list"><p class="empty">Loading…</p></div>
-      </div>
-
-      <!-- ══════════ INJECT TAB ══════════ -->
-      <div id="tab-inject" class="tab-panel">
-        <div class="sec-head"><div class="sec-title">Inject Test Event</div></div>
-        <p style="font-size:.82rem;color:var(--text-3);margin-bottom:20px;max-width:540px;line-height:1.65">Push a synthetic event directly into the agent pipeline — the Planner will reason about it and the Executor will route it. Perfect for live demos without Google OAuth.</p>
-        <div class="inject-form">
+      <section id="tab-inject" class="tab-panel" aria-labelledby="test-title">
+        <header class="page-heading"><div><h1 id="test-title">Test Deadline</h1><p>See what PersonalOS finds in a sample email without connecting Gmail.</p></div></header>
+        <div class="panel form-panel">
+          <h2>Sample email</h2>
           <div class="form-row">
-            <label class="form-label">Event Type</label>
-            <select class="form-select" id="inj-type" onchange="onInjTypeChange()">
-              <option value="email">Email</option>
-              <option value="calendar">Calendar Event</option>
-              <option value="filesystem">Filesystem Overflow</option>
-            </select>
-          </div>
-          <div id="inj-email-fields">
-            <div class="form-row">
-              <label class="form-label">From (sender)</label>
-              <input class="form-input" id="inj-from" placeholder="professor@university.edu" value="professor@university.edu"/>
-            </div>
-            <div class="form-row">
-              <label class="form-label">Subject</label>
-              <input class="form-input" id="inj-subject" placeholder="Assignment deadline — URGENT" value="Assignment deadline — URGENT"/>
-            </div>
-            <div class="form-row">
-              <label class="form-label">Snippet / Preview</label>
-              <textarea class="form-textarea" id="inj-snippet" placeholder="Dear student, please submit your assignment immediately…">Dear student, this is an urgent reminder. Your final project is due today. Please submit immediately.</textarea>
-            </div>
-            <div class="form-row">
-              <label class="form-check"><input type="checkbox" id="inj-urgent" checked/> Mark as urgent (adds urgency keywords → boosts confidence)</label>
-            </div>
-          </div>
-          <div id="inj-cal-fields" style="display:none">
-            <div class="form-row">
-              <label class="form-label">Event Title</label>
-              <input class="form-input" id="inj-cal-title" placeholder="Interview with Google" value="Interview with Google — Senior Engineer"/>
-            </div>
-            <div class="form-row">
-              <label class="form-label">Start Time (ISO)</label>
-              <input class="form-input" id="inj-cal-start" placeholder="2026-04-09T15:00:00+05:30"/>
-            </div>
-          </div>
-          <button class="btn-submit" id="inj-btn" onclick="injectEvent()">Inject Event →</button>
-          <div id="inj-result" style="display:none" class="inject-result"></div>
-        </div>
-      </div>
-
-      <!-- ══════════ PREFERENCES TAB ══════════ -->
-      <div id="tab-prefs" class="tab-panel">
-        <div class="sec-head">
-          <div class="sec-title">User Preferences <span class="count-pill" id="pref-count">—</span></div>
-        </div>
-        <p style="font-size:.82rem;color:var(--text-3);margin-bottom:20px;max-width:540px;line-height:1.65">These natural-language statements are stored in ChromaDB and semantically queried by the Planner to personalise every decision.</p>
-        <div id="pref-list" class="pref-list"><p class="empty">Loading…</p></div>
-
-        <hr class="divider"/>
-        <div class="sec-head"><div class="sec-title">Add Preference</div></div>
-        <div class="inject-form">
-          <div class="form-row">
-            <label class="form-label">Preference Statement</label>
-            <textarea class="form-textarea" id="pref-text" placeholder="User always replies to emails from their professor within 2 hours."></textarea>
+            <label class="form-label" for="inj-from">Sender</label>
+            <input class="form-input" id="inj-from" maxlength="320" value="professor@university.edu">
           </div>
           <div class="form-row">
-            <label class="form-label">Category</label>
-            <select class="form-select" id="pref-cat">
-              <option value="general">General</option>
-              <option value="email">Email</option>
-              <option value="calendar">Calendar</option>
-              <option value="filesystem">Filesystem</option>
-            </select>
+            <label class="form-label" for="inj-subject">Subject</label>
+            <input class="form-input" id="inj-subject" maxlength="500" value="Final project deadline">
           </div>
-          <button class="btn-submit" onclick="addPreference()">Save Preference</button>
-          <div id="pref-result" style="display:none" class="inject-result"></div>
+          <div class="form-row">
+            <label class="form-label" for="inj-snippet">Email body</label>
+            <textarea class="form-textarea" id="inj-snippet" maxlength="12000" rows="5">Dear student, please submit your final project by Friday at 5 PM.</textarea>
+          </div>
+          <label class="form-check"><input type="checkbox" id="inj-urgent" checked> Mark sample as urgent</label>
+          <button class="btn btn-primary" id="inj-btn" type="button" onclick="injectEvent()">Check Email</button>
+          <div id="inj-result" class="inject-result" role="status" style="display:none"></div>
         </div>
-      </div>
+      </section>
 
-    </div><!-- /page-content -->
-  </div><!-- /main-col -->
-</div><!-- /shell -->
+      <section id="tab-prefs" class="tab-panel" aria-labelledby="prefs-title">
+        <header class="page-heading"><div><h1 id="prefs-title">Preferences</h1><p>Guide how PersonalOS prioritizes deadlines.</p></div></header>
+        <div class="settings-grid">
+          <div class="panel form-panel">
+            <h2>Add a preference</h2>
+            <div class="form-row">
+              <label class="form-label" for="pref-text">Preference statement</label>
+              <textarea class="form-textarea" id="pref-text" rows="4" placeholder="Prioritize assignment deadlines from my professor."></textarea>
+            </div>
+            <button class="btn btn-primary" type="button" onclick="addPreference()">Save preference</button>
+            <div id="pref-result" class="inject-result" role="status" style="display:none"></div>
+          </div>
+          <section class="panel update-panel">
+            <div class="panel-header"><h2>Saved preferences</h2><span class="count-pill" id="pref-count">–</span></div>
+            <div id="pref-list" class="pref-list"><p class="empty">Loading preferences…</p></div>
+          </section>
+        </div>
+      </section>
 
-<div class="status-bar" id="status-bar">Connecting…</div>
+      <section id="tab-connections" class="tab-panel" aria-labelledby="connections-title">
+        <header class="page-heading"><div><h1 id="connections-title">Connections</h1><p>Manage your Gmail connection and check service availability.</p></div></header>
+        <div class="settings-grid">
+          <section class="panel form-panel" aria-labelledby="gmail-settings-heading">
+            <div class="service-heading">
+              <span class="service-logo google-mark" aria-hidden="true">G</span>
+              <div><h2 id="gmail-settings-heading">Gmail</h2><span class="service-status"><span class="connection-dot" data-gmail-dot></span><span data-gmail-status>Checking connection</span></span></div>
+            </div>
+            <p data-gmail-description>PersonalOS uses read-only access to find deadlines in your inbox.</p>
+            <button class="btn btn-primary" type="button" data-connect-google><span data-connect-label>Connect Gmail</span></button>
+          </section>
+          <section class="panel update-panel" aria-labelledby="health-title">
+            <div class="panel-header"><h2 id="health-title">Service status</h2></div>
+            <div id="health-grid" class="health-grid"><p class="empty">Checking services…</p></div>
+          </section>
+          <section class="panel form-panel" aria-labelledby="notification-settings-heading">
+            <h2 id="notification-settings-heading">Deadline notifications</h2>
+            <p id="browser-notification-status" role="status">Checking browser notification support…</p>
+            <button class="btn" id="enable-notifications" type="button" hidden>Enable browser notifications</button>
+            <p class="phone-reminder-status" id="phone-reminder-status">Checking critical call settings…</p>
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
 
-<script src="/static/app.js"></script>
-<script>
-  (function() {
-    if (localStorage.getItem('theme') === 'dark') {
-      document.body.classList.add('dark');
-      document.getElementById('theme-toggle').textContent = '☀️';
-    }
-  })();
-  function toggleTheme() {
-    const isDark = document.body.classList.toggle('dark');
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
-    document.getElementById('theme-toggle').textContent = isDark ? '☀️' : '🌙';
-  }
-</script>
+<dialog class="task-dialog" id="task-dialog" aria-labelledby="task-dialog-title">
+  <form id="task-form">
+    <h2 id="task-dialog-title">Edit deadline</h2>
+    <blockquote class="task-evidence" id="edit-evidence"></blockquote>
+    <div class="form-row">
+      <label class="form-label" for="edit-title">Task</label>
+      <input class="form-input" id="edit-title" required maxlength="160">
+    </div>
+    <div class="form-row">
+      <label class="form-label" for="edit-due">Due date and time</label>
+      <input class="form-input" id="edit-due" type="datetime-local" step="1" aria-describedby="edit-zone">
+      <small class="reminder-policy" id="edit-zone"></small>
+    </div>
+    <div class="form-row">
+      <label class="form-label" for="edit-importance">Importance</label>
+      <select class="form-select" id="edit-importance">
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </div>
+    <p class="task-error" id="edit-error" role="alert" hidden></p>
+    <div class="task-dialog-actions">
+      <button class="btn" id="edit-cancel" type="button">Cancel</button>
+      <button class="btn btn-primary" id="edit-save" type="submit">Save deadline</button>
+    </div>
+  </form>
+</dialog>
 </body>
 </html>

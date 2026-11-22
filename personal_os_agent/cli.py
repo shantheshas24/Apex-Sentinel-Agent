@@ -6,7 +6,7 @@ from typing import Sequence
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="PersonalOS Multi-Agent System")
+    parser = argparse.ArgumentParser(description="PersonalOS Deadline Tracker")
     parser.add_argument(
         "--skip-poll",
         action="store_true",
@@ -15,13 +15,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-mcp",
         action="store_true",
-        help="Skip starting the MCP server (for isolated testing)",
+        help="Run the dashboard and reminder worker without Gmail or LLM agents",
     )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    from utils.logger import setup_logging
+
+    setup_logging()
 
     if not args.no_mcp:
         print("[Main] Starting MCP tool server thread...")

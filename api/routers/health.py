@@ -6,13 +6,15 @@ import asyncio
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+
+from api.routers.google import connection_status
 
 router = APIRouter()
 
 
 @router.get("/api/health")
-async def health_check() -> dict:
+async def health_check(request: Request) -> dict:
     """Live health status of all services."""
     from config.settings import get_settings
     cfg = get_settings()
@@ -26,17 +28,22 @@ async def health_check() -> dict:
         t0 = time.perf_counter()
         ok = await redis.ping()
         ms = round((time.perf_counter() - t0) * 1000, 1)
-        eq = await redis._redis.llen("events:queue")
-        aq = await redis._redis.llen("approvals:pending")
-        dp = await redis._redis.hlen("dashboard:pending")
+        overall = ok
         checks["redis"] = {
             "status": "ok" if ok else "error",
             "latency_ms": ms,
-            "queues": {"events": eq, "approvals": aq, "dashboard_pending": dp},
+            "queues": await redis.scan_queue_depths(),
         }
     except Exception as e:
-        checks["redis"] = {"status": "error", "error": str(e)}
+        checks["redis"] = {"status": "error", "error": type(e).__name__}
         overall = False
+
+    if getattr(request.app.state, "dashboard_only", False):
+        return {
+            "overall": "healthy" if overall else "degraded",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "services": checks,
+        }
 
     # OpenRouter / Groq LLM
     try:
@@ -58,53 +65,30 @@ async def health_check() -> dict:
                 else {"status": "error", "error": f"HTTP {r.status_code}"}
             )
     except Exception as e:
-        checks["openrouter"] = {"status": "error", "error": str(e)[:100]}
+        checks["openrouter"] = {"status": "error", "error": type(e).__name__}
         overall = False
 
     # Google APIs
-    try:
-        from pathlib import Path
-        if Path(cfg.google_token_path).exists() and Path(cfg.google_credentials_path).exists():
-            from mcp_server.google_auth import get_credentials
-            from googleapiclient.discovery import build
-            creds   = await asyncio.to_thread(get_credentials)
-            gmail   = await asyncio.to_thread(build, "gmail", "v1", credentials=creds)
-            t0      = time.perf_counter()
-            profile = await asyncio.to_thread(lambda: gmail.users().getProfile(userId="me").execute())
-            ms      = round((time.perf_counter() - t0) * 1000, 1)
-            checks["google"] = {
-                "status": "ok",
-                "account": profile.get("emailAddress", ""),
-                "latency_ms": ms,
-            }
-        else:
-            checks["google"] = {
-                "status": "warning",
-                "error": "OAuth not completed — run scripts/setup_google_auth.py",
-            }
-    except Exception as e:
-        checks["google"] = {"status": "error", "error": str(e)[:100]}
+    checks["google"] = await connection_status(request)
+    overall = overall and checks["google"]["status"] == "ok"
 
     # Twilio
-    if cfg.twilio_enabled:
+    if cfg.deadline_phone_available:
         try:
             from twilio.rest import Client
             t0   = time.perf_counter()
             tw   = Client(cfg.twilio_account_sid, cfg.twilio_auth_token)
-            acct = await asyncio.to_thread(lambda: tw.api.accounts(cfg.twilio_account_sid).fetch())
+            await asyncio.to_thread(lambda: tw.api.accounts(cfg.twilio_account_sid).fetch())
             ms   = round((time.perf_counter() - t0) * 1000, 1)
             checks["twilio"] = {
                 "status": "ok",
-                "account": acct.friendly_name,
-                "from": cfg.twilio_from_number,
-                "to": cfg.twilio_to_number,
                 "latency_ms": ms,
             }
         except Exception as e:
-            checks["twilio"] = {"status": "error", "error": str(e)[:100]}
+            checks["twilio"] = {"status": "error", "error": type(e).__name__}
             overall = False
     else:
-        checks["twilio"] = {"status": "simulation_mode", "note": "TWILIO_* vars not set"}
+        checks["twilio"] = {"status": "disabled"}
 
     # ChromaDB
     try:
@@ -119,7 +103,7 @@ async def health_check() -> dict:
             "latency_ms": ms,
         }
     except Exception as e:
-        checks["chromadb"] = {"status": "error", "error": str(e)[:100]}
+        checks["chromadb"] = {"status": "error", "error": type(e).__name__}
         overall = False
 
     # MCP Server — FastMCP returns 404 on root; any HTTP response confirms the app is up.

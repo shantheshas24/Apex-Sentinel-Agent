@@ -7,12 +7,11 @@ Tests are split into two categories:
     - Redis client operations
     - Observer event normalization & deduplication logic
     - Planner LLM response parsing & confidence scoring
-    - Executor routing logic
 
   Integration tests  (require python main.py to be running)
-    - Live MCP tool calls (real Gmail, Calendar, Filesystem)
+    - Live Gmail MCP tool calls
     - All Dashboard REST API endpoints
-    - End-to-end pipeline: inject event → Planner → Executor → emails:all
+    - End-to-end pipeline: inject event → Planner → emails:all
 
 Run unit tests only:
     pytest tests/test_backend.py -m unit -v
@@ -26,6 +25,7 @@ Run everything:
 import asyncio
 import hashlib
 import json
+import os
 import sys
 import time
 import uuid
@@ -52,7 +52,7 @@ DASHBOARD_URL = "http://localhost:8080"
 # against DB 0 too (same server), but they write to unique keys and clean them up.
 # Integration tests that call the live HTTP API write to DB 0 intentionally (the
 # running server owns DB 0), so those tests MUST clean up their injected records.
-REDIS_URL = "redis://localhost:6379/0"
+REDIS_URL = os.getenv("PERSONALOS_TEST_REDIS_URL", "redis://localhost:6379/0")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -222,7 +222,7 @@ async def test_redis_dedup_mark_and_check(redis_client, redis_raw):
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_redis_email_records(redis_client):
-    """push_email_record stores; get_all_emails returns it; update_email_response mutates."""
+    """Keep deadline records and leave unrelated emails out of the deadline list."""
     plan_id = "test_plan_" + uuid.uuid4().hex[:8]
     plan = {
         "id": plan_id,
@@ -240,15 +240,26 @@ async def test_redis_email_records(redis_client):
     ids = [e["id"] for e in all_emails]
     assert plan_id in ids, "Stored plan not found in get_all_emails()"
 
-    # Update response
-    await redis_client.update_email_response(plan_id, "approved")
-    updated = next(e for e in await redis_client.get_all_emails() if e["id"] == plan_id)
-    assert updated["user_response"] == "approved"
+    assert all(e["id"] != plan_id for e in await redis_client.get_deadlines())
+
+    deadline = {
+        **plan,
+        "id": f"{plan_id}-deadline",
+        "event_type": "email",
+        "action": "track_deadline",
+        "deadline": "Submit the assignment",
+        "due": "Friday at 5 PM",
+        "evidence": "Please submit by Friday at 5 PM.",
+        "user_response": "tracked",
+    }
+    await redis_client.store_deadline_plan(deadline)
+    await redis_client.store_deadline_plan({**deadline, "due": "Monday"})
+    assert await redis_client.get_email_record(deadline["id"]) == deadline
+    assert deadline in await redis_client.get_deadlines()
 
     # Cleanup
-    from redis.asyncio import Redis
     r = aioredis.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
-    await r.hdel("emails:all", plan_id)
+    await r.hdel("emails:all", plan_id, deadline["id"])
     await r.aclose()
     print(f"\n  ✓ Email records CRUD OK")
 
@@ -310,49 +321,41 @@ def test_observer_normalize_email():
 
 
 @pytest.mark.unit
-def test_observer_normalize_calendar():
-    """_normalize_calendar produces correct fields for a calendar event."""
+@pytest.mark.asyncio
+async def test_observer_saves_checkpoint_after_queuing_read_mail(monkeypatch):
+    from unittest.mock import AsyncMock
     from agents.observer_agent import ObserverAgent
+
     agent = ObserverAgent()
+    checkpoint = {"page_token": "", "history_id": "101"}
+    call_tool = AsyncMock(return_value={
+        "messages": [{"id": "gmail-1", "subject": "Assignment due Friday", "unread": False}],
+        "cursor": checkpoint,
+    })
+    monkeypatch.setattr(agent, "call_tool", call_tool)
 
-    raw_event = {
-        "id": "cal_xyz",
-        "summary": "Emergency board meeting — critical deadline review",
-        "start": "2026-04-09T09:00:00+05:30",
-        "end": "2026-04-09T10:00:00+05:30",
-        "attendees": ["a@b.com"],
-        "location": "Room 1",
-        "description": "Overdue action items review",
-    }
-    event = agent._normalize_calendar(raw_event)
-
-    assert event["type"] == "calendar"
-    assert event["source"] == "google_calendar"
-    assert len(event["event_id"]) == 16
-    assert "emergency" in event["urgency_keywords"]
-    assert "critical" in event["urgency_keywords"]
-    assert "overdue" in event["urgency_keywords"]
-    expected_id = hashlib.sha256(b"cal:cal_xyz").hexdigest()[:16]
-    assert event["event_id"] == expected_id
-    print(f"\n  ✓ Calendar normalize OK — keywords={event['urgency_keywords']}")
+    redis = AsyncMock()
+    redis.get_gmail_sync.return_value = {}
+    redis.enqueue_unseen_email.return_value = True
+    redis.save_gmail_sync.return_value = True
+    assert await agent._sync_inbox(redis) == 1
+    call_tool.assert_awaited_once_with("sync_gmail", {"cursor": {}})
+    [event] = redis.enqueue_unseen_email.await_args.args
+    assert event["payload"]["unread"] is False
+    redis.save_gmail_sync.assert_awaited_once_with(checkpoint, previous={})
+    assert [call[0] for call in redis.mock_calls] == ["get_gmail_sync", "enqueue_unseen_email", "save_gmail_sync"]
 
 
 @pytest.mark.unit
-def test_observer_normalize_file_overflow():
-    """_normalize_file_overflow triggers only when file count > 20."""
-    from agents.observer_agent import ObserverAgent
-    agent = ObserverAgent()
+@pytest.mark.asyncio
+async def test_mcp_lists_only_gmail_tools():
+    from mcp_server.google_auth import SCOPES
+    from mcp_server.server import build_mcp_app
 
-    # 21 files → should generate event
-    files = [{"name": f"f{i}.txt", "path": f"f{i}.txt", "size_bytes": 100, "is_dir": False} for i in range(21)]
-    result = agent._normalize_file_overflow(files, 21)
+    tools = await build_mcp_app().list_tools()
 
-    assert result["type"] == "filesystem"
-    assert result["source"] == "local_fs"
-    assert result["payload"]["file_count"] == 21
-    assert len(result["payload"]["files"]) == 10  # first 10 sampled
-    print(f"\n  ✓ File overflow normalize OK")
-
+    assert {tool.name for tool in tools} == {"read_emails", "sync_gmail"}
+    assert {scope.rsplit("/", 1)[-1] for scope in SCOPES} == {"gmail.readonly"}
 
 @pytest.mark.unit
 def test_observer_no_urgency_for_newsletter():
@@ -387,11 +390,9 @@ def test_planner_parse_valid_json():
         "priority": "high",
         "reason": "Urgent reply needed",
         "requires_approval": True,
-        "alternatives": [
-            {"action": "no_action", "confidence": 10, "reason": "Do nothing"},
-            {"action": "read_calendar", "confidence": 20, "reason": "Check schedule"},
-        ],
-        "explanation": "Email requires immediate response",
+        "deadline": "Submit the assignment",
+        "due": "Friday",
+        "evidence": "Please submit by Friday.",
         "action_args": {"to": "boss@company.com", "subject": "Re: URGENT", "body": "On it!"},
     })
     plan = agent._parse_llm_response(raw)
@@ -399,7 +400,7 @@ def test_planner_parse_valid_json():
     assert plan["action"] == "send_email"
     assert plan["confidence"] == 85
     assert plan["priority"] == "high"
-    assert len(plan["alternatives"]) == 2
+    assert plan["due"] == "Friday"
     assert plan["action_args"]["to"] == "boss@company.com"
     print(f"\n  ✓ Parse valid JSON OK")
 
@@ -449,30 +450,25 @@ def test_planner_parse_missing_fields_get_defaults():
     agent = PlannerAgent.__new__(PlannerAgent)
 
     plan = agent._parse_llm_response('{"confidence": 60}')
-    assert plan["action"] == "no_action"
-    assert plan["requires_approval"] is True
-    assert plan["alternatives"] == []
-    assert plan["action_args"] == {}
+    assert plan["priority"] == ""
+    assert plan["reason"] == ""
     print(f"\n  ✓ Missing-field defaults OK")
 
 
 # ── 4. Planner — Confidence Scoring ─────────────────────────────────────────
 
 @pytest.mark.unit
-@pytest.mark.asyncio
-async def test_planner_score_plan_urgency_boost():
+def test_planner_score_plan_urgency_boost():
     """Urgency keywords boost confidence by up to 30%."""
     from agents.planner_agent import PlannerAgent
-    from memory.chroma_memory import ChromaMemory
     agent = PlannerAgent.__new__(PlannerAgent)
-    agent._memory = ChromaMemory.from_settings()
 
     base_plan = {"action": "no_action", "confidence": 70, "requires_approval": True}
     event_no_urgency = {"urgency_keywords": []}
     event_3_keywords = {"urgency_keywords": ["urgent", "deadline", "critical"]}
 
-    scored_no = await agent._score_plan(dict(base_plan), event_no_urgency)
-    scored_3  = await agent._score_plan(dict(base_plan), event_3_keywords)
+    scored_no = agent._score_plan(dict(base_plan), event_no_urgency)
+    scored_3  = agent._score_plan(dict(base_plan), event_3_keywords)
 
     # With 0 keywords: multiplier=1.0; with 3 keywords: multiplier=1.3
     assert scored_3["confidence"] > scored_no["confidence"], \
@@ -483,64 +479,21 @@ async def test_planner_score_plan_urgency_boost():
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
-async def test_planner_score_plan_output_clamped():
+def test_planner_score_plan_output_clamped():
     """Adjusted confidence is always clamped to [0, 100]."""
     from agents.planner_agent import PlannerAgent
-    from memory.chroma_memory import ChromaMemory
     agent = PlannerAgent.__new__(PlannerAgent)
-    agent._memory = ChromaMemory.from_settings()
 
     plan_high = {"action": "no_action", "confidence": 99, "requires_approval": True}
     event_max  = {"urgency_keywords": ["urgent", "deadline", "critical"]}
-    scored = await agent._score_plan(plan_high, event_max)
+    scored = agent._score_plan(plan_high, event_max)
     assert scored["confidence"] <= 100, "Clamping failed above 100"
 
     plan_low = {"action": "no_action", "confidence": 0, "requires_approval": True}
     event_none = {"urgency_keywords": []}
-    scored_low = await agent._score_plan(plan_low, event_none)
+    scored_low = agent._score_plan(plan_low, event_none)
     assert scored_low["confidence"] >= 0, "Clamping failed below 0"
     print(f"\n  ✓ Confidence clamping in scoring OK")
-
-
-# ── 5. Executor — Routing Logic ───────────────────────────────────────────────
-
-@pytest.mark.unit
-def test_executor_routing_thresholds():
-    """Verify the three routing buckets: >90 auto, 70-90 dashboard, <70 discard."""
-    from agents.executor_agent import ExecutorAgent
-
-    agent = ExecutorAgent.__new__(ExecutorAgent)
-
-    cases = [
-        (91, False, "auto"),   # >90
-        (90, False, "dashboard"),  # boundary: 90 is >= 70 but NOT > 90
-        (75, False, "dashboard"),  # 70-90
-        (70, False, "dashboard"),  # boundary: 70 is >= 70
-        (69, False, "discard"),    # <70
-        (10, False, "discard"),
-        (10, True,  "auto"),   # approved_override forces auto regardless of confidence
-    ]
-    for confidence, override, expected_route in cases:
-        if confidence > 90 or override:
-            route = "auto"
-        elif confidence >= 70:
-            route = "dashboard"
-        else:
-            route = "discard"
-        assert route == expected_route, \
-            f"confidence={confidence}, override={override}: expected {expected_route}, got {route}"
-    print(f"\n  ✓ Executor routing thresholds OK (all {len(cases)} cases)")
-
-
-@pytest.mark.unit
-def test_action_tool_map_complete():
-    """ACTION_TOOL_MAP must cover all tools referenced in AVAILABLE_TOOLS."""
-    from agents.executor_agent import ACTION_TOOL_MAP
-    expected_tools = {"send_email", "read_emails", "create_event", "read_calendar", "list_files", "move_file"}
-    assert expected_tools == set(ACTION_TOOL_MAP.keys()), \
-        f"ACTION_TOOL_MAP missing tools: {expected_tools - set(ACTION_TOOL_MAP.keys())}"
-    print(f"\n  ✓ ACTION_TOOL_MAP covers all {len(ACTION_TOOL_MAP)} tools")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -624,7 +577,7 @@ def test_dashboard_metrics_structure(http):
     r = http.get("/api/metrics")
     assert r.status_code == 200
     data = r.json()
-    for key in ("total", "by_priority", "by_response", "avg_confidence",
+    for key in ("total", "by_priority", "by_status", "avg_confidence",
                 "confidence_distribution", "queue_depths", "timestamp"):
         assert key in data, f"Missing key in /api/metrics: {key}"
     assert isinstance(data["by_priority"], dict)
@@ -758,7 +711,7 @@ def test_inject_urgent_email_flows_to_emails_all(http, cleanup_injected_events):
         "event_type": "email",
         "from": "ci-test@personalos.internal",
         "subject": unique_subject,
-        "snippet": "This is an automated integration test. URGENT action required immediately.",
+        "snippet": "This is an automated integration test. Please submit the sample assignment by Friday at 5 PM.",
         "urgent": True,
     }
 
@@ -788,143 +741,96 @@ def test_inject_urgent_email_flows_to_emails_all(http, cleanup_injected_events):
             break
 
     if found is None:
-        # Check if Planner attempted the event but the LLM failed (e.g. rate limit)
-        import re as _re
-        try:
-            with open("logs/agent.log", encoding="utf-8", errors="replace") as _f:
-                log_content = _f.read()
-            if "429" in log_content or "Rate limit" in log_content or "rate_limit" in log_content:
-                pytest.skip(
-                    "OpenRouter free-tier daily rate limit hit — "
-                    "Planner popped the event but the LLM call was rejected (HTTP 429). "
-                    "Add credits to OPENROUTER_API_KEY account or try again tomorrow."
-                )
-        except Exception:
-            pass
+        feed = http.get("/api/feed?limit=50").json()
+        if any(item.get("event_id") == event_id and "waiting to retry" in item.get("action", "") for item in feed):
+            pytest.skip("The sample scan is queued for a delayed retry after a processing error.")
         pytest.fail(
             f"Injected event '{unique_subject}' not found in emails:all after 120s. "
-            "Is the Planner running? Check logs/agent.log for errors."
+            "Check logs/agent-runtime.log for Planner errors."
         )
 
     # Event was processed — validate its fields
-    user_resp = found.get("user_response", "")
-    if user_resp == "llm_failed":
-        pytest.skip(f"Planner processed event but LLM failed: {found.get('reason','?')[:120]}")
-
     assert found["confidence"] >= 0
-    assert found["action"] is not None
-    assert "urgency_keywords" in found or found.get("priority") in ("high", "medium", "low")
+    assert found["action"] == "track_deadline"
+    assert found["due"] == "Friday at 5 PM"
     print(f"\n  ✓ Injected event processed:")
     print(f"    action={found['action']}  confidence={found['confidence']}%  priority={found.get('priority','?')}")
     print(f"    response={found.get('user_response','?')}  urgency_kw={found.get('urgency_keywords',[])} ")
 
 
-@pytest.mark.integration
-def test_inject_calendar_event(http, cleanup_injected_events):
-    """POST /api/events/inject for a calendar event also works."""
-    _require_system(http)
-    payload = {
-        "event_type": "calendar",
-        "summary": f"Test meeting — delete me — {uuid.uuid4().hex[:6]}",
-        "start": "2026-04-10T14:00:00+05:30",
-    }
-    r = http.post("/api/events/inject", json=payload)
-    assert r.status_code == 200
-    data = r.json()
-    assert data["status"] == "injected"
-    assert data["type"] == "calendar"
-    print(f"\n  ✓ Calendar event injected: {data['event_id']}")
+@pytest.mark.unit
+@pytest.mark.parametrize("event_type", ["calendar", "filesystem", "unknown_type"])
+def test_inject_refuses_retired_event_types(event_type):
+    from fastapi.testclient import TestClient
+    from api.app import app
+
+    with TestClient(app) as client:
+        response = client.post("/api/events/inject", json={"event_type": event_type})
+
+    assert response.status_code == 422
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_deadline_workflow_tracks_sample_and_ignores_unrelated_email(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from agents.planner_agent import PlannerAgent
+    from api.app import app
+    from memory.redis_client import RedisClient
+
+    redis = AsyncMock(spec=RedisClient)
+    monkeypatch.setattr(RedisClient, "get_instance", lambda: redis)
+    planner = PlannerAgent.__new__(PlannerAgent)
+    planner._model = "test-model"
+    planner._openrouter = False
+    planner._redis = redis
+    planner._memory = AsyncMock()
+    planner._memory.query_preferences.return_value = []
+    redis.get_email_record.return_value = None
+
+    due_excerpt = "Please submit by Friday at 5 PM."
+    responses = [
+        {
+            "deadline": "Submit the project",
+            "due": "Friday at 5 PM",
+            "evidence": due_excerpt,
+            "action": "send_email",
+            "action_args": {"subject": "Re: Project", "body": "Received, thank you."},
+            "priority": "high",
+            "confidence": 97,
+        },
+        {"deadline": "", "due": "", "evidence": "", "action": "track_deadline"},
+    ]
+    completions = AsyncMock(side_effect=[
+        SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(data)))])
+        for data in responses
+    ])
+    planner._llm = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=completions)))
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for snippet in (due_excerpt, "Would you like to meet Friday at 5 PM?"):
+            response = await client.post("/api/events/inject", json={"subject": "Project", "snippet": snippet})
+            assert response.status_code == 200
+            await planner._process_email(redis.push_event.await_args.args[0])
+
+        redis.store_deadline_plans.assert_awaited_once()
+        [plan] = redis.store_deadline_plans.await_args.args[0]
+        assert plan["deadline"] == "Submit the project"
+        assert plan["due"] == "Friday at 5 PM"
+        assert "action_args" not in plan
+        assert plan["action"] == "track_deadline"
+
+        redis.get_deadlines.return_value = [plan]
+        assert (await client.get("/api/emails")).json() == [plan]
 
 
-@pytest.mark.integration
-def test_inject_invalid_type_returns_error(http):
-    """Unsupported event_type should return HTTP 400."""
-    _require_system(http)
-    r = http.post("/api/events/inject", json={"event_type": "unknown_type"})
-    assert r.status_code == 400
-    print(f"\n  ✓ Invalid event_type → 400")
+@pytest.mark.unit
+@pytest.mark.parametrize("path", ["/api/approve/old", "/api/reject/old", "/api/twilio/test"])
+def test_retired_outbound_routes_are_unavailable(path):
+    from fastapi.testclient import TestClient
+    from api.app import app
 
-
-# ── 9. Approve / Reject Flow ──────────────────────────────────────────────────
-
-@pytest.mark.integration
-def test_approve_nonexistent_plan_returns_404(http):
-    """Approving a non-existent plan ID must return 404."""
-    _require_system(http)
-    r = http.post("/api/approve/definitely-does-not-exist-xyz")
-    assert r.status_code == 404
-    print(f"\n  ✓ Approve unknown ID → 404")
-
-
-@pytest.mark.integration
-def test_reject_nonexistent_plan_returns_404(http):
-    """Rejecting a non-existent plan ID must return 404."""
-    _require_system(http)
-    r = http.post("/api/reject/definitely-does-not-exist-xyz")
-    assert r.status_code == 404
-    print(f"\n  ✓ Reject unknown ID → 404")
-
-
-@pytest.mark.integration
-def test_full_approve_flow(http, cleanup_injected_events):
-    """
-    Inject a medium-confidence event, wait for it to reach dashboard:pending,
-    then approve it and verify it moves to emails:all with response='approved'.
-    """
-    _require_system(http)
-
-    # Inject with moderate urgency (medium confidence expected)
-    unique_subject = f"REVIEW REQUIRED — test — {uuid.uuid4().hex[:6]}"
-    r = http.post("/api/events/inject", json={
-        "event_type": "email",
-        "from": "tester@personalos.internal",
-        "subject": unique_subject,
-        "snippet": "Please review this important update and provide your feedback.",
-        "urgent": False,
-    })
-    assert r.status_code == 200
-    print(f"\n  ✓ Injected medium-priority event")
-
-    # Wait for Planner to process and Executor to route to dashboard.
-    # Use fresh clients to avoid stale keep-alive sockets after idle periods.
-    deadline = time.time() + 90
-    pending_item = None
-    while time.time() < deadline:
-        time.sleep(3)
-        try:
-            with httpx.Client(base_url=DASHBOARD_URL, timeout=10.0) as c:
-                pending = c.get("/api/pending").json()
-        except Exception:
-            continue
-        pending_item = next(
-            (p for p in pending if unique_subject in p.get("subject", "")), None
-        )
-        if pending_item:
-            print(f"  ✓ Found in dashboard:pending (conf={pending_item.get('confidence')}%)")
-            break
-
-    if pending_item is None:
-        try:
-            with httpx.Client(base_url=DASHBOARD_URL, timeout=10.0) as c:
-                emails = c.get("/api/emails").json()
-        except Exception:
-            emails = []
-        found = next((e for e in emails if unique_subject in e.get("subject", "")), None)
-        if found:
-            print(f"  ℹ Event was routed as '{found.get('user_response')}' (confidence={found.get('confidence')}%)")
-            return
-        pytest.skip("Event not found in pending or emails after 90s — LLM may be slow")
-
-    # Approve it
-    r_approve = http.post(f"/api/approve/{pending_item['id']}")
-    assert r_approve.status_code == 200
-    assert r_approve.json()["status"] == "approved"
-
-    # Verify in emails:all
-    time.sleep(2)
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10.0) as c:
-        emails = c.get("/api/emails").json()
-    approved = next((e for e in emails if e["id"] == pending_item["id"]), None)
-    assert approved is not None, "Approved item not found in emails:all"
-    assert approved["user_response"] == "approved"
-    print(f"\n  ✓ Full approve flow OK — item '{unique_subject[:40]}' is now 'approved'")
+    with TestClient(app) as client:
+        assert client.post(path).status_code == 404

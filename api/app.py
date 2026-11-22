@@ -2,12 +2,11 @@
 PersonalOS FastAPI Application — port 8080.
 
 Endpoints are split into focused routers:
-  api/routers/approvals.py   — plan approval / rejection / feed
+  api/routers/inbox.py       — Gmail scan and activity feed
   api/routers/events.py      — synthetic event injection
   api/routers/health.py      — live service health checks
   api/routers/metrics.py     — aggregate stats / confidence histogram
   api/routers/preferences.py — ChromaDB user preference CRUD
-  api/routers/twilio.py      — outbound call trigger
 
 Static assets served from api/static/:
   dashboard.html             — single-page frontend
@@ -19,28 +18,28 @@ WebSocket:
 """
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from api.ws import manager
-from api.routers import approvals, events, health, metrics, preferences, twilio, voice
+from api.routers import deadlines, events, google, health, inbox, metrics, preferences
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="PersonalOS Dashboard", version="1.3.0")
+app = FastAPI(title="PersonalOS Deadline Dashboard", version="1.3.0")
 
 # ── Static files ───────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 # ── Routers ────────────────────────────────────────────────────────────────────
-app.include_router(approvals.router)
+app.include_router(deadlines.router)
 app.include_router(events.router)
+app.include_router(google.router)
 app.include_router(health.router)
+app.include_router(inbox.router)
 app.include_router(metrics.router)
 app.include_router(preferences.router)
-app.include_router(twilio.router)
-app.include_router(voice.router)
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────
@@ -60,5 +59,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
 # ── Dashboard UI ───────────────────────────────────────────────────────────────
 @app.get("/")
-async def dashboard_page() -> FileResponse:
+async def dashboard_page(request: Request) -> Response:
+    if "code" in request.query_params or "error" in request.query_params:
+        return await google.finish_connection(request)
     return FileResponse(_STATIC_DIR / "dashboard.html")

@@ -1,7 +1,5 @@
 """
-ChromaDB vector memory — two collections:
-  user_preferences  — semantic preference statements
-  action_outcomes   — past action approval/rejection history
+ChromaDB vector memory for user deadline preferences.
 
 All chroma calls are wrapped in asyncio.to_thread() since chromadb
 PersistentClient is synchronous and would block the event loop.
@@ -14,6 +12,9 @@ from typing import Any
 
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
+DEADLINE_PREFERENCE_CATEGORIES = ("deadline", "general", "email")
+DEADLINE_PREFERENCE_FILTER = {"category": {"$in": list(DEADLINE_PREFERENCE_CATEGORIES)}}
 
 # Apply HuggingFace token so model downloads are authenticated (higher rate limits)
 _hf_token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
@@ -34,11 +35,6 @@ class ChromaMemory:
         )
         self.preferences = self._client.get_or_create_collection(
             name="user_preferences",
-            embedding_function=self._ef,
-            metadata={"hnsw:space": "cosine"},
-        )
-        self.outcomes = self._client.get_or_create_collection(
-            name="action_outcomes",
             embedding_function=self._ef,
             metadata={"hnsw:space": "cosine"},
         )
@@ -69,7 +65,7 @@ class ChromaMemory:
     ) -> None:
         """
         Store a natural-language preference statement as an embedding.
-        Example: "User always replies to emails from professor@uni.edu within 2 hours"
+        Example: "User prioritizes assignments from professor@uni.edu"
         """
         doc_id = f"pref-{uuid.uuid4()}"
         meta = {
@@ -95,7 +91,8 @@ class ChromaMemory:
         results = await asyncio.to_thread(
             self.preferences.query,
             query_texts=[query],
-            n_results=min(n_results, max(1, self.preferences.count())),
+            n_results=n_results,
+            where=DEADLINE_PREFERENCE_FILTER,
         )
         output = []
         if results and results["documents"]:
@@ -107,69 +104,6 @@ class ChromaMemory:
                 output.append({"document": doc, "metadata": meta, "distance": dist})
         return output
 
-    # ── Action Outcomes ───────────────────────────────────────────────────────
-
-    async def record_outcome(
-        self,
-        plan: dict[str, Any],
-        result: dict[str, Any],
-        approved: bool,
-        executor: str = "auto",
-    ) -> None:
-        """
-        Store the outcome of an action for future approval rate calculation.
-        Document text: "<event_type> event — action: <action>" for semantic similarity.
-        """
-        doc_id = f"outcome-{uuid.uuid4()}"
-        action_type = plan.get("action", "unknown")
-        event_type = plan.get("event_type", "unknown")
-        document = f"{event_type} event — action: {action_type}"
-        meta = {
-            "action_type": action_type,
-            "approved": approved,
-            "confidence_at_time": int(plan.get("confidence", 0)),
-            "event_type": event_type,
-            "executor": executor,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        await asyncio.to_thread(
-            self.outcomes.add,
-            documents=[document],
-            metadatas=[meta],
-            ids=[doc_id],
-        )
-
-    async def get_approval_rate(self, action_type: str) -> float:
-        """
-        Look up outcomes for this action_type and return historical approval rate.
-        Returns 0.5 (neutral) when no history exists.
-        Uses metadata-only get() for exact lookup — no embedding computation needed.
-        """
-        count = await asyncio.to_thread(self.outcomes.count)
-        if count == 0:
-            return 0.5
-
-        try:
-            results = await asyncio.to_thread(
-                self.outcomes.get,
-                where={"action_type": {"$eq": action_type}},
-                limit=min(20, count),
-            )
-        except Exception:
-            # where filter may fail if no matching docs
-            return 0.5
-
-        if not results or not results.get("metadatas"):
-            return 0.5
-
-        # get() returns a flat list (unlike query() which returns nested [[...]])
-        metas = results["metadatas"]
-        if not metas:
-            return 0.5
-
-        approved_count = sum(1 for m in metas if m.get("approved", False))
-        return approved_count / len(metas)
-
     async def seed_default_preferences(self) -> None:
         """
         Seed sensible default preferences on first run so the planner
@@ -180,11 +114,8 @@ class ChromaMemory:
             return  # already seeded
 
         defaults = [
-            ("User prioritizes emails from professors, managers, and important contacts", "email", 1),
-            ("User wants to be notified immediately about urgent deadlines", "general", 1),
-            ("User prefers to review and approve calendar changes before they are made", "calendar", 2),
-            ("User's download folder should be organized automatically when it has more than 20 files", "filesystem", 2),
-            ("User values concise, professional email replies", "email", 2),
+            ("User prioritizes deadlines from professors, managers, and important contacts", 1),
+            ("User wants to be notified immediately about urgent deadlines", 1),
         ]
-        for text, category, priority in defaults:
-            await self.store_preference(text, category=category, priority=priority, source="default")
+        for text, priority in defaults:
+            await self.store_preference(text, category="deadline", priority=priority, source="default")

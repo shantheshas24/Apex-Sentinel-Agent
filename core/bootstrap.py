@@ -42,7 +42,7 @@ def start_mcp_server_thread() -> threading.Thread:
         try:
             loop.run_until_complete(server.serve())
         except Exception as exc:
-            print(f"[MCP Server] ERROR: {exc}")
+            print(f"[MCP Server] ERROR: {type(exc).__name__}")
         finally:
             loop.close()
 
@@ -100,25 +100,16 @@ async def check_redis() -> None:
 
 async def run(args) -> None:
     """Main coroutine — initialises everything and runs all agents concurrently."""
-    from pathlib import Path
-
-    from utils.logger import setup_logging
     from config.settings import get_settings
-
-    Path("logs").mkdir(exist_ok=True)
-    Path("sandbox").mkdir(exist_ok=True)
-
-    setup_logging("logs/agent.log")
     cfg = get_settings()
 
     print("=" * 60)
-    print("  PersonalOS Agent  —  SOLARIS X Hackathon 2026")
+    print("  PersonalOS Agent  —  Deadline Tracking")
     print("=" * 60)
     print(f"  LLM Model  : {cfg.openrouter_model}")
-    print(f"  Redis      : {cfg.redis_url}")
     print(f"  MCP Server : http://{cfg.mcp_server_host}:{cfg.mcp_server_port}")
     print(f"  Dashboard  : http://localhost:{cfg.dashboard_port}")
-    print(f"  Twilio     : {'ENABLED' if cfg.twilio_enabled else 'SIMULATION MODE'}")
+    print(f"  Phone calls: {'ENABLED' if cfg.deadline_phone_available else 'DISABLED'}")
     print(f"  Poll mode  : {'DISABLED (--skip-poll)' if args.skip_poll else f'every {cfg.observer_poll_interval}s'}")
     print("=" * 60)
 
@@ -128,10 +119,13 @@ async def run(args) -> None:
         await wait_for_mcp_server()
 
     from agents.observer_agent import ObserverAgent
-    from agents.planner_agent import PlannerAgent
-    from agents.executor_agent import ExecutorAgent
     from api.app import app as dashboard_app
+    from core.reminders import ReminderWorker
+    from memory.redis_client import RedisClient
     import uvicorn
+
+    dashboard_app.state.dashboard_only = args.no_mcp
+    dashboard_app.state.gmail_polling = not (args.skip_poll or args.no_mcp)
 
     tasks = []
 
@@ -139,10 +133,13 @@ async def run(args) -> None:
         observer = ObserverAgent()
         tasks.append(asyncio.create_task(observer.start(), name="observer"))
 
-    planner  = PlannerAgent()
-    executor = ExecutorAgent()
-    tasks.append(asyncio.create_task(planner.start(),  name="planner"))
-    tasks.append(asyncio.create_task(executor.start(), name="executor"))
+    if not args.no_mcp:
+        from agents.planner_agent import PlannerAgent
+
+        planner = PlannerAgent()
+        tasks.append(asyncio.create_task(planner.start(), name="planner"))
+    reminders = ReminderWorker(RedisClient.get_instance(), cfg)
+    tasks.append(asyncio.create_task(reminders.run(), name="reminders"))
 
     dashboard_config = uvicorn.Config(
         dashboard_app,
@@ -154,7 +151,9 @@ async def run(args) -> None:
     tasks.append(asyncio.create_task(dashboard_server.serve(), name="dashboard"))
 
     print(f"\n[Bootstrap] All agents started. Dashboard: http://localhost:{cfg.dashboard_port}")
-    if args.skip_poll:
+    if args.no_mcp:
+        print("[Bootstrap] Tip: Run  python tests/fixtures/seed_dashboard.py  to load sample tasks")
+    elif args.skip_poll:
         print("[Bootstrap] Tip: Run  python tests/fixtures/seed_events.py  to inject demo events")
     print("[Bootstrap] Press Ctrl+C to stop\n")
 

@@ -1,6 +1,6 @@
 """
 One-time Google OAuth setup.
-Run this ONCE to authorize Gmail + Calendar access and save token.json.
+Run this ONCE to authorize Gmail access and save token.json.
 After this, run.py will work without any browser popup.
 
 Usage:
@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import get_settings
-from mcp_server.google_auth import SCOPES
+from mcp_server.google_auth import SCOPES, store_credentials
 
 cfg = get_settings()
 
@@ -42,10 +42,9 @@ print("\nWaiting for browser authorization...")
 try:
     from google_auth_oauthlib.flow import InstalledAppFlow
     flow = InstalledAppFlow.from_client_secrets_file(cfg.google_credentials_path, SCOPES)
-    creds = flow.run_local_server(port=0)
+    creds = flow.run_local_server(port=0, prompt="consent select_account", include_granted_scopes="false")
 
-    with open(cfg.google_token_path, "w") as f:
-        f.write(creds.to_json())
+    store_credentials(creds)
 
     print(f"\n[OK] token.json saved to: {cfg.google_token_path}")
 
@@ -54,12 +53,6 @@ try:
     gmail = build("gmail", "v1", credentials=creds)
     profile = gmail.users().getProfile(userId="me").execute()
     print(f"[OK] Gmail verified — account: {profile.get('emailAddress')}")
-
-    cal = build("calendar", "v3", credentials=creds)
-    cal_list = cal.calendarList().list(maxResults=1).execute()
-    items = cal_list.get("items", [])
-    cal_name = items[0].get("summary", "primary") if items else "primary"
-    print(f"[OK] Calendar verified — calendar: '{cal_name}'")
 
     print("\n" + "=" * 55)
     print("  Setup complete! Now run: python run.py")

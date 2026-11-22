@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Added inline email extraction, deadline confirmation, searchable task states, completion, and snooze.
+- Added in-app reminders with rescheduling, quiet hours, rate limits, and opt-in critical Twilio escalation.
+- Changed all Gmail replies to require dashboard approval, and added a labeled synthetic model evaluation.
+
+- Focused the Gmail pipeline and dashboard on actionable deadlines with due wording from the source email.
+- Removed Google Calendar scheduling, filesystem automation, and their MCP tools and configuration.
+- Added the deadline list at `/api/deadlines` with `/api/emails` retained as an alias.
+
 ---
 
 ## [1.3.0] — 2026-04-08

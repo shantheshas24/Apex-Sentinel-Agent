@@ -1,3 +1,4 @@
+# Builds the archived presentation for the original PersonalOS hackathon project.
 """
 Build PersonalOS Agent hackathon PPT using python-pptx.
 Run: python scripts/build_ppt.py

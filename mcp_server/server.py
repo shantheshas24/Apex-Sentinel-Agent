@@ -1,16 +1,12 @@
 """
 MCP Tool Server — PersonalOS.
 Runs in a daemon thread (started by main.py via threading.Thread).
-Exposes 6 tools over SSE transport on port 8000:
-  Gmail:    read_emails, send_email
-  Calendar: read_calendar, create_event
-  FS:       list_files, move_file
+Exposes Gmail tools over SSE transport on port 8000:
+  Gmail:    read_emails, sync_gmail
 """
 from mcp.server.fastmcp import FastMCP
 
 from mcp_server.gmail_tools import register_gmail_tools
-from mcp_server.calendar_tools import register_calendar_tools
-from mcp_server.filesystem_tools import register_filesystem_tools
 
 # Module-level FastMCP instance — tools are registered once via build_mcp_app()
 mcp = FastMCP("PersonalOS")
@@ -26,8 +22,6 @@ def build_mcp_app() -> FastMCP:
     global _tools_registered
     if not _tools_registered:
         register_gmail_tools(mcp)
-        register_calendar_tools(mcp)
-        register_filesystem_tools(mcp)
         _tools_registered = True
     return mcp
 
@@ -44,6 +38,9 @@ def run_server() -> None:
     """
     import uvicorn
     from config.settings import get_settings
+    from utils.logger import setup_logging
+
+    setup_logging()
     cfg = get_settings()
 
     app = build_mcp_app()

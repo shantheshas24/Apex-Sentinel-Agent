@@ -1,18 +1,29 @@
 """
 Structured logging setup using structlog.
-- JSON renderer → logs/agent.log (machine-readable)
+- JSON renderer → logs/agent-runtime.log (machine-readable)
 - ConsoleRenderer (colorized) → stdout (human-readable during demo)
 colorama.init() is required for ANSI colors on Windows.
 """
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import colorama
 import structlog
 
+_PROVIDER_LOGGERS = frozenset({
+    "mcp", "sse_starlette", "openai", "httpcore", "httpx", "urllib3", "google",
+    "googleapiclient", "chromadb", "sentence_transformers", "twilio",
+})
 
-def setup_logging(log_file: str = "logs/agent.log") -> None:
+
+class _ApplicationLogs(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.name.split(".", 1)[0] not in _PROVIDER_LOGGERS
+
+
+def setup_logging(log_file: str = "logs/agent-runtime.log") -> None:
     """
     Configure structlog with dual output:
       1. Colorized ConsoleRenderer to stdout
@@ -34,22 +45,21 @@ def setup_logging(log_file: str = "logs/agent.log") -> None:
     ]
 
     # ── File handler (JSON) ───────────────────────────────────────────────────
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler = RotatingFileHandler(log_file, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter("%(message)s"))
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.INFO)
+    file_handler.addFilter(_ApplicationLogs())
 
     # ── Stdout handler (colorized) ────────────────────────────────────────────
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(logging.INFO)
+    console_handler.addFilter(_ApplicationLogs())
 
     # Standard library root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
-    # Silence noisy third-party loggers
-    for noisy in ["httpcore", "httpx", "urllib3", "google", "chromadb", "sentence_transformers"]:
-        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     structlog.configure(
         processors=shared_processors
